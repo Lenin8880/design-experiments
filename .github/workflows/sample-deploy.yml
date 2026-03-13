@@ -1,0 +1,85 @@
+name: Sample Plugin Deploy
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Where to deploy the plugin package'
+        required: true
+        default: 'artifact-only'
+        type: choice
+        options:
+          - artifact-only
+          - staging-via-ssh
+
+env:
+  PLUGIN_SLUG: design-experiments
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: npm
+
+      - name: Build plugin assets
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build plugin zip
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+        run: |
+          ./scripts/package-plugin.sh
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_SLUG }}-package
+          path: dist/*.zip
+
+  deploy-staging:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_target == 'staging-via-ssh'
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_SLUG }}-package
+          path: dist
+
+      - name: Copy zip to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.WP_STAGING_HOST }}
+          username: ${{ secrets.WP_STAGING_USER }}
+          key: ${{ secrets.WP_STAGING_SSH_KEY }}
+          port: ${{ secrets.WP_STAGING_PORT || 22 }}
+          source: 'dist/*.zip'
+          target: ${{ secrets.WP_STAGING_TMP_DIR }}
+
+      - name: Install plugin on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.WP_STAGING_HOST }}
+          username: ${{ secrets.WP_STAGING_USER }}
+          key: ${{ secrets.WP_STAGING_SSH_KEY }}
+          port: ${{ secrets.WP_STAGING_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.WP_STAGING_TMP_DIR }}"
+            latest_zip="$(ls -1t dist/*.zip | head -n1)"
+            wp plugin install "$latest_zip" --force --activate --path="${{ secrets.WP_PATH }}"

@@ -32,7 +32,8 @@ A simple plugin to prototype design ideas in WP-Admin. This repository is intend
 	```
 
 5. When your stylesheet is ready, visit `Settings > Design Experiments`. Select your experiment to activate it and view your changes.
-6. Once you're ready to share your experiment, [open a PR](https://help.github.com/en/articles/creating-a-pull-request) and share it here. 
+6. The settings screen now supports a real-time interactive preview. Selecting an experiment applies it immediately for your current admin session so you can evaluate it before saving.
+7. Once you're ready to share your experiment, [open a PR](https://help.github.com/en/articles/creating-a-pull-request) and share it here. 
 
 ### To compile CSS:
 
@@ -42,3 +43,27 @@ A simple plugin to prototype design ideas in WP-Admin. This repository is intend
 ## Questions or Improvements?
 
 If you'd like to propose improvements to this plugin, feel free to open an [issue](https://github.com/WordPress/design-experiments/issues) or PR. Also feel free to ask in the [#design channel on WordPress.org Slack](http://wordpress.slack.com/messages/design/). 
+
+## Sample automated deployment
+
+This repository now includes a sample GitHub Actions workflow at `.github/workflows/sample-deploy.yml` that packages the plugin on every push to `main`, on version tags (`v*`), or when manually triggered.
+
+### What it does
+
+1. Installs npm dependencies and runs `npm run build`.
+2. Packages the plugin into a versioned zip with `scripts/package-plugin.sh`.
+3. Uploads the zip as a workflow artifact.
+4. Optionally deploys to a staging WordPress environment over SSH when you run the workflow manually and choose `staging-via-ssh`.
+
+### Configure secrets for staging deploy
+
+To use the optional SSH deployment job, add these repository secrets:
+
+- `WP_STAGING_HOST`
+- `WP_STAGING_USER`
+- `WP_STAGING_SSH_KEY`
+- `WP_STAGING_PORT` (optional, defaults to `22`)
+- `WP_STAGING_TMP_DIR` (temporary directory on the server)
+- `WP_PATH` (path to your WordPress installation for WP-CLI)
+
+If these are not set, you can still run `artifact-only` mode to generate a zip and install it manually for testing.
