@@ -30,6 +30,8 @@ class DesignExperiments {
 		add_action( 'admin_init', array( $this, 'design_experiments_settings' ) );
 		add_action( 'admin_notices', array( $this, 'design_experiments_admin_notice' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'design_experiments_enqueue_stylesheets' ), 100 );
+		add_action( 'admin_enqueue_scripts', array( $this, 'design_experiments_enqueue_admin_assets' ) );
+		add_action( 'wp_ajax_design_experiments_preview', array( $this, 'design_experiments_preview' ) );
 
 		// Filters.
 		add_filter( 'plugin_action_links_design-experiments/index.php', array( $this, 'design_experiments_add_settings_link' ) );
@@ -68,6 +70,60 @@ class DesignExperiments {
 			'default' => 'default',
 		);
 		register_setting( 'design-experiments-settings', 'design-experiments-setting', $design_setting_args );
+	}
+
+	/**
+	 * Enqueue scripts for real-time preview on the settings page.
+	 */
+	function design_experiments_enqueue_admin_assets( $hook ) {
+
+		if ( 'settings_page_design-experiments' !== $hook ) {
+			return;
+		}
+
+		$script_path = plugin_dir_path( __FILE__ ) . 'assets/js/design-experiments-admin.js';
+		$script_url  = plugins_url( 'assets/js/design-experiments-admin.js', __FILE__ );
+		$mtime       = @filemtime( $script_path );
+		$version     = $mtime ? $mtime : time();
+
+		wp_enqueue_script( 'design-experiments-admin', $script_url, array( 'jquery' ), $version, true );
+		wp_localize_script(
+			'design-experiments-admin',
+			'designExperimentsAdmin',
+			array(
+				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+				'nonce'   => wp_create_nonce( 'design-experiments-preview' ),
+			)
+		);
+	}
+
+	/**
+	 * Save a per-user preview selection so experiments can be tried instantly.
+	 */
+	function design_experiments_preview() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( __( 'You are not allowed to preview experiments.', 'design-experiments' ) );
+		}
+
+		check_ajax_referer( 'design-experiments-preview', 'nonce' );
+
+		$selected_experiment = isset( $_POST['experiment'] ) ? sanitize_text_field( wp_unslash( $_POST['experiment'] ) ) : '';
+		$is_valid            = false;
+
+		foreach ( $this->design_experiment_css_files as $css_file ) {
+			if ( basename( $css_file, '.css' ) === $selected_experiment ) {
+				$is_valid = true;
+				break;
+			}
+		}
+
+		if ( ! $is_valid ) {
+			wp_send_json_error( __( 'That experiment could not be loaded.', 'design-experiments' ) );
+		}
+
+		update_user_meta( get_current_user_id(), 'design-experiments-preview-setting', $selected_experiment );
+
+		wp_send_json_success();
 	}
 
 
@@ -159,6 +215,17 @@ class DesignExperiments {
 
 			<?php submit_button(); ?>
 		</form>
+
+		<p>
+			<em><?php _e( 'Live preview is enabled: selecting an experiment applies it immediately for your current admin session.', 'design-experiments' ); ?></em>
+		</p>
+
+		<h2><?php _e( 'Deploy and submit', 'design-experiments' ); ?></h2>
+		<ol>
+			<li><?php _e( 'When your experiment is ready, keep the stylesheet inside the plugin\'s css directory with a Title, Description, and PR file header.', 'design-experiments' ); ?></li>
+			<li><?php _e( 'Create a plugin zip from this folder and install it in a test site to validate the final package.', 'design-experiments' ); ?></li>
+			<li><?php _e( 'Submit your experiment through a pull request so others can review and iterate.', 'design-experiments' ); ?></li>
+		</ol>
 		</div>
 	<?php }
 
@@ -168,7 +235,11 @@ class DesignExperiments {
 	 */
 	function design_experiments_enqueue_stylesheets() {
 
-		$option = get_option( 'design-experiments-setting' );
+		$option = get_user_meta( get_current_user_id(), 'design-experiments-preview-setting', true );
+
+		if ( empty( $option ) ) {
+			$option = get_option( 'design-experiments-setting' );
+		}
 
 		foreach ( $this->design_experiment_css_files as $css_file ) {
 			$experiment_name = basename( $css_file, '.css' );
